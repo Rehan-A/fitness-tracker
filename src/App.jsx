@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
 import { doc, onSnapshot, setDoc } from 'firebase/firestore'
-import { auth, db } from './firebase'
+import { auth, db, isConfigured } from './firebase'
 import AuthScreen from './components/AuthScreen'
 import SetupScreen from './components/SetupScreen'
 import Dashboard from './components/Dashboard'
@@ -17,26 +17,30 @@ const TABS = [
 ]
 
 export default function App() {
-  const [user, setUser]       = useState(undefined) // undefined = auth loading
-  const [store, setStore]     = useState(null)
+  // When Firebase isn't configured yet, skip auth and use localStorage
+  const [user, setUser]       = useState(isConfigured ? undefined : 'local')
+  const [store, setStore]     = useState(() => {
+    if (isConfigured) return null
+    try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : null } catch { return null }
+  })
   const [syncing, setSyncing] = useState(false)
   const [tab, setTab]         = useState('dashboard')
   const [modalDay, setModalDay] = useState(null)
 
-  // Listen to Firebase auth state
+  // Listen to Firebase auth state (only when configured)
   useEffect(() => {
+    if (!isConfigured) return
     return onAuthStateChanged(auth, u => setUser(u ?? null))
   }, [])
 
   // Subscribe to Firestore when signed in
   useEffect(() => {
-    if (!user) return
+    if (!isConfigured || !user || user === 'local') return
     const ref = doc(db, 'users', user.uid)
     const unsub = onSnapshot(ref, snap => {
       if (snap.exists()) {
         setStore(snap.data())
       } else {
-        // Migrate any existing localStorage data on first sign-in
         try {
           const local = localStorage.getItem(STORAGE_KEY)
           if (local) setStore(JSON.parse(local))
@@ -47,12 +51,16 @@ export default function App() {
   }, [user])
 
   const saveStore = useCallback(async newStore => {
-    if (!user) return
     setStore(newStore)
+    if (!isConfigured || !user || user === 'local') {
+      // localStorage fallback
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newStore))
+      return
+    }
     setSyncing(true)
     try {
       await setDoc(doc(db, 'users', user.uid), newStore)
-      localStorage.removeItem(STORAGE_KEY) // clear old localStorage after first Firestore save
+      localStorage.removeItem(STORAGE_KEY)
     } finally {
       setSyncing(false)
     }
@@ -78,7 +86,7 @@ export default function App() {
     )
   }
 
-  // Not signed in
+  // Not signed in (Firebase configured but no user)
   if (!user) return <AuthScreen />
 
   // Signed in but profile not set up yet
@@ -101,17 +109,19 @@ export default function App() {
         </div>
         <div className="flex items-center gap-3">
           {syncing && <span className="text-[10px] text-zinc-600 animate-pulse">syncing…</span>}
-          <div className="flex items-center gap-2">
-            {user.photoURL && (
-              <img src={user.photoURL} referrerPolicy="no-referrer" alt="" className="w-7 h-7 rounded-full" />
-            )}
-            <button
-              onClick={() => auth.signOut()}
-              className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-            >
-              Sign out
-            </button>
-          </div>
+          {user !== 'local' && (
+            <div className="flex items-center gap-2">
+              {user?.photoURL && (
+                <img src={user.photoURL} referrerPolicy="no-referrer" alt="" className="w-7 h-7 rounded-full" />
+              )}
+              <button
+                onClick={() => auth.signOut()}
+                className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+              >
+                Sign out
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
