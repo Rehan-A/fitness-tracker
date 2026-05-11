@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { onAuthStateChanged } from 'firebase/auth'
+import { onAuthStateChanged, getRedirectResult } from 'firebase/auth'
 import { doc, onSnapshot, setDoc } from 'firebase/firestore'
 import { auth, db, isConfigured } from './firebase'
 import AuthScreen from './components/AuthScreen'
@@ -30,6 +30,8 @@ export default function App() {
   // Listen to Firebase auth state (only when configured)
   useEffect(() => {
     if (!isConfigured) return
+    // Process redirect result after returning from Google sign-in
+    getRedirectResult(auth).catch(() => {})
     return onAuthStateChanged(auth, u => setUser(u ?? null))
   }, [])
 

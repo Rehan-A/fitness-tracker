@@ -1,16 +1,8 @@
-import { signInWithPopup } from 'firebase/auth'
+import { signInWithRedirect } from 'firebase/auth'
 import { auth, googleProvider, isConfigured } from '../firebase'
 
 export default function AuthScreen() {
-  const signIn = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider)
-    } catch (err) {
-      if (err.code !== 'auth/popup-closed-by-user') {
-        alert('Sign in failed: ' + err.message)
-      }
-    }
-  }
+  const signIn = () => signInWithRedirect(auth, googleProvider)
 
   if (!isConfigured) {
     return (
