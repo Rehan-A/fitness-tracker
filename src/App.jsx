@@ -1,4 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { onAuthStateChanged } from 'firebase/auth'
+import { doc, onSnapshot, setDoc } from 'firebase/firestore'
+import { auth, db } from './firebase'
+import AuthScreen from './components/AuthScreen'
 import SetupScreen from './components/SetupScreen'
 import Dashboard from './components/Dashboard'
 import CalendarView from './components/CalendarView'
@@ -13,35 +17,73 @@ const TABS = [
 ]
 
 export default function App() {
-  const [store, setStore] = useState(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      return raw ? JSON.parse(raw) : null
-    } catch {
-      return null
-    }
-  })
-  const [tab, setTab] = useState('dashboard')
+  const [user, setUser]       = useState(undefined) // undefined = auth loading
+  const [store, setStore]     = useState(null)
+  const [syncing, setSyncing] = useState(false)
+  const [tab, setTab]         = useState('dashboard')
   const [modalDay, setModalDay] = useState(null)
 
+  // Listen to Firebase auth state
   useEffect(() => {
-    if (store) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(store))
+    return onAuthStateChanged(auth, u => setUser(u ?? null))
+  }, [])
+
+  // Subscribe to Firestore when signed in
+  useEffect(() => {
+    if (!user) return
+    const ref = doc(db, 'users', user.uid)
+    const unsub = onSnapshot(ref, snap => {
+      if (snap.exists()) {
+        setStore(snap.data())
+      } else {
+        // Migrate any existing localStorage data on first sign-in
+        try {
+          const local = localStorage.getItem(STORAGE_KEY)
+          if (local) setStore(JSON.parse(local))
+        } catch {}
+      }
+    })
+    return unsub
+  }, [user])
+
+  const saveStore = useCallback(async newStore => {
+    if (!user) return
+    setStore(newStore)
+    setSyncing(true)
+    try {
+      await setDoc(doc(db, 'users', user.uid), newStore)
+      localStorage.removeItem(STORAGE_KEY) // clear old localStorage after first Firestore save
+    } finally {
+      setSyncing(false)
     }
-  }, [store])
+  }, [user])
 
   const updateDay = (dateKey, patch) => {
-    setStore(prev => ({
-      ...prev,
+    const newStore = {
+      ...store,
       days: {
-        ...prev.days,
-        [dateKey]: { ...(prev.days?.[dateKey] ?? { date: dateKey }), ...patch },
+        ...store.days,
+        [dateKey]: { ...(store.days?.[dateKey] ?? { date: dateKey }), ...patch },
       },
-    }))
+    }
+    saveStore(newStore)
   }
 
-  if (!store) {
-    return <SetupScreen onSetup={profile => setStore({ profile, days: {} })} />
+  // Auth loading
+  if (user === undefined) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="text-zinc-600 text-sm animate-pulse">Loading…</div>
+      </div>
+    )
+  }
+
+  // Not signed in
+  if (!user) return <AuthScreen />
+
+  // Signed in but profile not set up yet
+  if (!store?.profile) {
+    return <SetupScreen onSetup={profile => saveStore({ profile, days: {} })} />
   }
 
   const { profile, days } = store
@@ -57,34 +99,29 @@ export default function App() {
             <p className="text-xs text-zinc-500 leading-none mt-0.5">10KG Challenge</p>
           </div>
         </div>
-        <button
-          onClick={() => {
-            if (confirm('Reset all data? This cannot be undone.')) {
-              localStorage.removeItem(STORAGE_KEY)
-              setStore(null)
-            }
-          }}
-          className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-        >
-          ⚙ Reset
-        </button>
+        <div className="flex items-center gap-3">
+          {syncing && <span className="text-[10px] text-zinc-600 animate-pulse">syncing…</span>}
+          <div className="flex items-center gap-2">
+            {user.photoURL && (
+              <img src={user.photoURL} referrerPolicy="no-referrer" alt="" className="w-7 h-7 rounded-full" />
+            )}
+            <button
+              onClick={() => auth.signOut()}
+              className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
       </header>
 
       {/* Main content */}
       <main className="flex-1 overflow-y-auto pb-20">
         {tab === 'dashboard' && (
-          <Dashboard
-            profile={profile}
-            days={days}
-            onUpdateDay={updateDay}
-            onOpenDay={setModalDay}
-          />
+          <Dashboard profile={profile} days={days} onUpdateDay={updateDay} onOpenDay={setModalDay} />
         )}
         {tab === 'calendar' && (
-          <CalendarView
-            days={days}
-            onOpenDay={setModalDay}
-          />
+          <CalendarView days={days} onOpenDay={setModalDay} />
         )}
         {tab === 'progress' && (
           <ProgressView profile={profile} days={days} />
