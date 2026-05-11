@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { onAuthStateChanged, getRedirectResult } from 'firebase/auth'
+import { onAuthStateChanged } from 'firebase/auth'
 import { doc, onSnapshot, setDoc } from 'firebase/firestore'
 import { auth, db, isConfigured } from './firebase'
 import AuthScreen from './components/AuthScreen'
@@ -19,9 +19,6 @@ const TABS = [
 export default function App() {
   // When Firebase isn't configured yet, skip auth and use localStorage
   const [user, setUser]         = useState(isConfigured ? undefined : 'local')
-  const [completingSignIn, setCompletingSignIn] = useState(
-    isConfigured && !!sessionStorage.getItem('auth_pending')
-  )
   const [store, setStore]       = useState(() => {
     if (isConfigured) return null
     try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : null } catch { return null }
@@ -33,20 +30,7 @@ export default function App() {
   // Listen to Firebase auth state (only when configured)
   useEffect(() => {
     if (!isConfigured) return
-
-    const unsubscribe = onAuthStateChanged(auth, u => setUser(u ?? null))
-
-    if (sessionStorage.getItem('auth_pending')) {
-      getRedirectResult(auth)
-        .then(result => { if (result?.user) setUser(result.user) })
-        .catch(err => console.error('redirect result error:', err.code))
-        .finally(() => {
-          sessionStorage.removeItem('auth_pending')
-          setCompletingSignIn(false)
-        })
-    }
-
-    return unsubscribe
+    return onAuthStateChanged(auth, u => setUser(u ?? null))
   }, [])
 
   // Subscribe to Firestore when signed in
@@ -91,17 +75,6 @@ export default function App() {
       },
     }
     saveStore(newStore)
-  }
-
-  // Returning from Google redirect — processing sign-in
-  if (completingSignIn) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center gap-3">
-        <div className="text-4xl animate-bounce">🔥</div>
-        <p className="text-zinc-300 font-semibold">Completing sign-in…</p>
-        <p className="text-zinc-600 text-sm">Just a moment</p>
-      </div>
-    )
   }
 
   // Auth loading

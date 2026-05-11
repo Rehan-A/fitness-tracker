@@ -1,14 +1,20 @@
 import { useState } from 'react'
-import { signInWithRedirect } from 'firebase/auth'
+import { signInWithPopup } from 'firebase/auth'
 import { auth, googleProvider, isConfigured } from '../firebase'
 
 export default function AuthScreen() {
   const [loading, setLoading] = useState(false)
 
-  const signIn = () => {
+  const signIn = async () => {
     setLoading(true)
-    sessionStorage.setItem('auth_pending', '1')
-    signInWithRedirect(auth, googleProvider)
+    try {
+      await signInWithPopup(auth, googleProvider)
+    } catch (err) {
+      setLoading(false)
+      if (err.code !== 'auth/popup-closed-by-user') {
+        alert('Sign in failed: ' + err.message)
+      }
+    }
   }
 
   if (!isConfigured) {
