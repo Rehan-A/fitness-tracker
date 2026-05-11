@@ -30,8 +30,10 @@ export default function App() {
   // Listen to Firebase auth state (only when configured)
   useEffect(() => {
     if (!isConfigured) return
-    // Process redirect result after returning from Google sign-in
-    getRedirectResult(auth).catch(() => {})
+    // Handle redirect result (fires when returning from Google redirect sign-in)
+    getRedirectResult(auth)
+      .then(result => { if (result?.user) setUser(result.user) })
+      .catch(() => {})
     return onAuthStateChanged(auth, u => setUser(u ?? null))
   }, [])
 
